@@ -110,7 +110,8 @@ func parseTvLogo(source string) map[string]*Channel {
 
 	list := make(map[string]*Channel, 0)
 	regTd, _ := regexp.Compile("(?U)<td>(.+)</td>")
-	regImg, _ := regexp.Compile("<img src=\"(.+)\" alt=\".+\" height=\"[0-9]+\">")
+	//regImg, _ := regexp.Compile("<img src=\"(.+)\" alt=\".+\" height=\"[0-9]+\">")
+	regImg, _ := regexp.Compile("<a href=\"((.+)\\.png)\">")
 	for _, item := range find {
 		findTd := regTd.FindAllStringSubmatch(item[0], -1)
 		if findTd == nil || len(findTd) == 0 {
@@ -124,7 +125,7 @@ func parseTvLogo(source string) map[string]*Channel {
 		}
 
 		findImg := regImg.FindStringSubmatch(findTd[0][1])
-		if findImg != nil && len(findImg) == 2 {
+		if findImg != nil && len(findImg) == 3 {
 			row.Logo = findImg[1]
 		}
 
