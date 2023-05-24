@@ -126,7 +126,7 @@ func parseTvLogo(source string) map[string]*Channel {
 
 		findImg := regImg.FindStringSubmatch(findTd[0][1])
 		if findImg != nil && len(findImg) == 3 {
-			row.Logo = findImg[1]
+			row.Logo = epg + findImg[1][1:]
 		}
 
 		list[findTd[2][1]] = row
