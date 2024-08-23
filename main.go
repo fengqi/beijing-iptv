@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var (
@@ -14,6 +15,9 @@ var (
 
 	regXTvgUrl, _ = regexp.Compile("x-tvg-url=\"(.+)\"")
 	regTvgName, _ = regexp.Compile("tvg-name=\"(.+)\"")
+
+	cache     string    = ""
+	cacheTime time.Time = time.Now()
 )
 
 type ExtM3u struct {
@@ -41,6 +45,31 @@ type Channel struct {
 }
 
 func main() {
+	http.HandleFunc("/", m3uHandle)
+	if err := http.ListenAndServe(":80", nil); err != nil {
+		panic(err)
+	}
+}
+
+func m3uHandle(writer http.ResponseWriter, request *http.Request) {
+	if cache == "" || time.Now().Sub(cacheTime) > time.Hour*12 {
+		m3uString := getM3u()
+		if m3uString == "" {
+			writer.WriteHeader(http.StatusInternalServerError)
+			_, _ = writer.Write([]byte("error"))
+			return
+		}
+
+		cache = m3uString
+		cacheTime = time.Now()
+	}
+
+	//writer.Header().Set("Content-Type", "application/octet-stream")
+	writer.Header().Set("Content-Type", "text/txt")
+	_, _ = writer.Write([]byte(cache))
+}
+
+func getM3u() (m3uString string) {
 	content := httpGet(epg)
 	if content == "" {
 		return
@@ -61,11 +90,11 @@ func main() {
 		return
 	}
 
-	m3uString := buildM3u(em)
-	err := ioutil.WriteFile("IPTV-Unicom.m3u", []byte(m3uString), 0664)
-	if err != nil {
-		panic(err)
-	}
+	return buildM3u(em)
+	//err := ioutil.WriteFile("IPTV-Unicom.m3u", []byte(m3uString), 0664)
+	//if err != nil {
+	//	panic(err)
+	//}
 }
 
 func buildM3u(em *ExtM3u) string {
@@ -193,6 +222,10 @@ func parseM3u(source string, channel map[string]*Channel) *ExtM3u {
 		eiSplit := strings.Split(ei, ",")
 		if len(eiSplit) == 2 {
 			row.Name = strings.Trim(eiSplit[1], "\r\n")
+		}
+
+		if (row.TvgName == "" || row.TvgName == "该频道节目单尚无") && row.Name != "" {
+			row.TvgName = row.Name
 		}
 
 		em.ExtInf = append(em.ExtInf, row)
