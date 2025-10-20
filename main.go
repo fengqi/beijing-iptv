@@ -1,15 +1,23 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
+
+	"golang.org/x/net/proxy"
 )
 
 var (
+	proxyUrl   = "socks5h://192.168.50.112:1080"
+	httpClient = createHttpClient(proxyUrl)
+
 	m3u = "https://raw.githubusercontent.com/qwerttvv/Beijing-IPTV/master/IPTV-Unicom.m3u"
 	epg = "http://epg.51zmt.top:8000"
 
@@ -52,7 +60,7 @@ func main() {
 }
 
 func m3uHandle(writer http.ResponseWriter, request *http.Request) {
-	if cache == "" || time.Now().Sub(cacheTime) > time.Hour*12 {
+	if cache == "" || time.Since(cacheTime) > time.Hour*12 {
 		m3uString := getM3u()
 		if m3uString == "" {
 			writer.WriteHeader(http.StatusInternalServerError)
@@ -133,7 +141,7 @@ func parseTvLogo(source string) map[string]*Channel {
 	}
 
 	find := reg.FindAllStringSubmatch(source, -1)
-	if find == nil || len(find) == 0 {
+	if len(find) == 0 {
 		return nil
 	}
 
@@ -143,7 +151,7 @@ func parseTvLogo(source string) map[string]*Channel {
 	regImg, _ := regexp.Compile("<a href=\"((.+)\\.png)\">")
 	for _, item := range find {
 		findTd := regTd.FindAllStringSubmatch(item[0], -1)
-		if findTd == nil || len(findTd) == 0 {
+		if len(findTd) == 0 {
 			continue
 		}
 
@@ -154,7 +162,7 @@ func parseTvLogo(source string) map[string]*Channel {
 		}
 
 		findImg := regImg.FindStringSubmatch(findTd[0][1])
-		if findImg != nil && len(findImg) == 3 {
+		if len(findImg) == 3 {
 			row.Logo = epg + findImg[1][1:]
 		}
 
@@ -177,7 +185,7 @@ func parseM3u(source string, channel map[string]*Channel) *ExtM3u {
 
 	// #EXTM3U x-tvg-url="http://epg.51zmt.top:8000/e.xml.gz"
 	find := regXTvgUrl.FindStringSubmatch(split[0])
-	if find != nil && len(find) == 2 {
+	if len(find) == 2 {
 		em.XTvgUrl = find[1]
 	}
 
@@ -210,7 +218,7 @@ func parseM3u(source string, channel map[string]*Channel) *ExtM3u {
 
 		// tvg-name="CCTV5+"
 		find := regTvgName.FindStringSubmatch(ei)
-		if find != nil && len(find) == 2 {
+		if len(find) == 2 {
 			row.TvgName = find[1]
 			if sub, ok := channel[row.TvgName]; ok {
 				row.TvgLogo = sub.Logo
@@ -235,16 +243,43 @@ func parseM3u(source string, channel map[string]*Channel) *ExtM3u {
 }
 
 func httpGet(url string) string {
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		panic(err)
 	}
 
-	bytes, err := ioutil.ReadAll(resp.Body)
+	bytes, err := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 	if err != nil {
 		panic(err)
 	}
 
 	return string(bytes)
+}
+
+func createHttpClient(proxyConnect string) *http.Client {
+	proxyUrl, err := url.Parse(proxyConnect)
+	if err != nil || proxyConnect == "" {
+		return http.DefaultClient
+	}
+
+	dialContext := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		dialer := &net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}
+
+		proxyDialer, err := proxy.FromURL(proxyUrl, dialer)
+		if err != nil {
+			fmt.Printf("new proxy dialer err: %v\n", err)
+			return dialer.Dial(network, addr)
+		}
+
+		return proxyDialer.Dial(network, addr)
+	}
+
+	transport := http.DefaultTransport.(*http.Transport)
+	transport.DialContext = dialContext
+
+	return &http.Client{Transport: transport}
 }
